@@ -109,7 +109,7 @@ public class ChatSessionManager : IDisposable
 
         if (info == null)
         {
-            _log.LogWarning("Speech from unknown client {Server}/{Id}, dropping", serverAddress, clientId);
+            _log.LogWarning("Speech from unknown speaker on {Server}, dropping", serverAddress);
             return;
         }
 

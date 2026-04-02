@@ -117,10 +117,12 @@ public class VoiceReceiver : BackgroundService
 
         var reporter = _registry.Find(server, reporterId);
         if (reporter is null) return;
-        if (!_registry.IsHost(server, reporter.ChannelId, reporterId)) return;
 
         // Refresh reporter + speaker on every valid voice packet so .NET keeps
         // the latest server/channel membership even if the original REGISTER was old.
+        // Do not gate on a synthetic "host" election here: if the plugin is installed
+        // on a non-earliest client in the channel, that check drops every voice frame
+        // and STT never sees any audio.
         _registry.Register(server, reporter.ChannelId, reporter.ChannelName, reporterId, reporter.Uid, reporter.Nickname);
 
         var speaker = _registry.Find(server, speakerId);
@@ -229,8 +231,8 @@ public class VoiceReceiver : BackgroundService
 
         _registry.UpsertChannel(server, channelId, 0, channelName);
         _registry.Register(server, channelId, channelName, clientId, uid, nickname);
-        _log.LogDebug("Registered client [{Server}] channel={Channel} name={ChannelName} id={Id} uid={Uid} nick={Nick}",
-                      server, channelId, channelName, clientId, uid, nickname);
+        _log.LogDebug("Registered client [{Server}] channel={Channel} name={ChannelName} nick={Nick}",
+                  server, channelId, channelName, nickname);
     }
 
     private void HandleChannelInfo(byte[] data, int off, string server)

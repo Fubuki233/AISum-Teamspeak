@@ -44,8 +44,8 @@ public class AzureSttService : IDisposable
         {
             if (kv.Value.LastActivity < cutoff)
             {
-                _log.LogInformation("Stopping idle STT session [{S}] client {Id}",
-                                    kv.Key.Server, kv.Key.ClientId);
+                _log.LogInformation("Stopping idle STT session [{S}]",
+                                    kv.Key.Server);
                 StopClient(kv.Key.Server, kv.Key.ClientId);
             }
         }
@@ -58,8 +58,8 @@ public class AzureSttService : IDisposable
         // Optional app-side cap: disabled by default to allow all users to connect.
         if (_maxConcurrent > 0 && !_sessions.ContainsKey(key) && _sessions.Count >= _maxConcurrent)
         {
-            _log.LogDebug("STT session limit ({Max}) reached, dropping audio for [{S}] client {Id}",
-                          _maxConcurrent, serverAddress, clientId);
+            _log.LogDebug("STT session limit ({Max}) reached, dropping audio for [{S}]",
+                          _maxConcurrent, serverAddress);
             return;
         }
 
@@ -109,7 +109,7 @@ public class AzureSttService : IDisposable
             if (e.Result.Reason == ResultReason.RecognizedSpeech &&
                 !string.IsNullOrWhiteSpace(e.Result.Text))
             {
-                _log.LogDebug("STT [{Server}] client {Id}: {Text}", serverAddress, clientId, e.Result.Text);
+                _log.LogDebug("STT [{Server}]: {Text}", serverAddress, e.Result.Text);
                 OnSpeechRecognized?.Invoke(serverAddress, clientId, e.Result.Text);
             }
         };
@@ -118,8 +118,8 @@ public class AzureSttService : IDisposable
         {
             if (e.Reason == CancellationReason.Error)
             {
-                _log.LogWarning("STT error [{Server}] client {Id}: {Detail}",
-                                serverAddress, clientId, e.ErrorDetails);
+                _log.LogWarning("STT error [{Server}]: {Detail}",
+                                serverAddress, e.ErrorDetails);
                 // Remove the zombie session immediately so future audio frames
                 // can recreate a fresh connection instead of writing to a dead stream.
                 StopClient(serverAddress, clientId);
@@ -130,15 +130,15 @@ public class AzureSttService : IDisposable
                 {
                     var key = (serverAddress, clientId);
                     _cooldowns[key] = DateTime.UtcNow + RateLimitCooldown;
-                    _log.LogWarning("Rate-limited by Azure (4429) for [{Server}] client {Id}; " +
-                                    "pausing STT for {Secs}s", serverAddress, clientId,
+                    _log.LogWarning("Rate-limited by Azure (4429) for [{Server}]; " +
+                                    "pausing STT for {Secs}s", serverAddress,
                                     (int)RateLimitCooldown.TotalSeconds);
                 }
             }
         };
 
         recognizer.StartContinuousRecognitionAsync().Wait();
-        _log.LogInformation("Started STT session for [{Server}] client {Id} @ {Freq}Hz", serverAddress, clientId, frequency);
+        _log.LogInformation("Started STT session for [{Server}] @ {Freq}Hz", serverAddress, frequency);
 
         return new ClientSttSession
         {

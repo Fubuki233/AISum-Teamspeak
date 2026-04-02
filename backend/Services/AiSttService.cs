@@ -39,8 +39,8 @@ public class AiSttService : IDisposable
 
         if (created && _announcedStreams.TryAdd(key, 0))
         {
-            _log.LogInformation("AI-STT stream active for [{Server}] client {Id} @ {Freq}Hz",
-                serverAddress, clientId, frequency);
+            _log.LogInformation("AI-STT stream active for [{Server}] @ {Freq}Hz",
+                serverAddress, frequency);
         }
 
         lock (state.Gate)
@@ -77,18 +77,18 @@ public class AiSttService : IDisposable
 
             if (payload is null || payload.Length == 0) continue;
 
-            _log.LogInformation("AI-STT flushing [{Server}] client {Id}: {Bytes} bytes @ {Freq}Hz",
-                key.Server, key.ClientId, payload.Length, freq);
+            _log.LogInformation("AI-STT flushing [{Server}]: {Bytes} bytes @ {Freq}Hz",
+                key.Server, payload.Length, freq);
 
             var text = await _ai.TranscribePcmAsync(payload, freq);
             if (!string.IsNullOrWhiteSpace(text))
             {
-                _log.LogInformation("AI-STT [{Server}] client {Id}: {Text}", key.Server, key.ClientId, text);
+                _log.LogInformation("AI-STT [{Server}]: {Text}", key.Server, text);
                 OnSpeechRecognized?.Invoke(key.Server, key.ClientId, text);
             }
             else
             {
-                _log.LogInformation("AI-STT produced no text for [{Server}] client {Id}", key.Server, key.ClientId);
+                _log.LogInformation("AI-STT produced no text for [{Server}]", key.Server);
             }
         }
     }
