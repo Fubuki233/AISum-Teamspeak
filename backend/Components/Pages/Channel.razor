@@ -1,0 +1,591 @@
+@page "/tsai/channel"
+@rendermode InteractiveServer
+@inject CurrentUser Me
+@inject NavigationManager Nav
+@inject ChatSessionManager SessionMgr
+@inject ClientRegistry Registry
+@inject AiRuntimeOptions AiOptions
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>TS AI - @_channelName</PageTitle>
+
+@if (!Me.IsAuthenticated)
+{
+    <p>请先<a href="/">登录</a>。</p>
+}
+else
+{
+    <div class="channel-layout @(_showStatsPanel ? string.Empty : "side-panel-hidden")">
+        @* ---- Left: Chat area ---- *@
+        <div class="chat-area">
+            <div class="chat-header">
+                <h3>@FormatChannelLabel(_channelName)</h3>
+                <span class="user-badge">@Me.DisplayName</span>
+            </div>
+
+            <div class="chat-subheader">
+                <div class="chat-meta">
+                    <span>客户端ID：@(_currentClientId?.ToString() ?? "未知")</span>
+                    <span>当前频道：@FormatChannelLabel(_channelName)</span>
+                </div>
+                <div class="chat-controls">
+                    @if (_availableChannels.Count > 0)
+                    {
+                        <select class="channel-select" value="@_channelName" @onchange="SwitchChannel">
+                            @foreach (var ch in _availableChannels)
+                            {
+                                <option value="@ch.Key">@FormatChannelOption(ch)</option>
+                            }
+                        </select>
+                    }
+
+                    <div class="ai-picker">
+                        <span class="ai-picker-label">AI</span>
+                        <select class="channel-select ai-select" value="@_selectedAiChoice" @onchange="SwitchAiChoice">
+                            @foreach (var choice in AiOptions.Choices)
+                            {
+                                <option value="@choice.Id">@choice.Label</option>
+                            }
+                        </select>
+                        <select class="channel-select ai-tone-select" value="@_selectedAiTone" @onchange="SwitchAiTone">
+                            <option value="standard">普通</option>
+                            <option value="bold">串子</option>
+                        </select>
+                    </div>
+
+                    <button type="button" class="panel-toggle-btn summary-trigger-btn" @onclick="TriggerManualSummaryAsync" disabled="@_manualSummaryBusy">
+                        @(_manualSummaryBusy ? "总结中..." : "手动总结")
+                    </button>
+
+                    <button type="button" class="panel-toggle-btn" @onclick="ToggleStatsPanel">
+                        @(_showStatsPanel ? "隐藏统计" : "显示统计")
+                    </button>
+                </div>
+            </div>
+
+            <div class="chat-messages" @ref="_messagesDiv">
+                @if (BuildTimeline().Count == 0)
+                {
+                    <div class="muted">...</div>
+                }
+
+                @foreach (var item in BuildTimeline())
+                {
+                    if (item.IsSummary && item.Summary is not null)
+                    {
+                        <div class="summary-inline @(item.Summary.WasUpdated ? "updated" : "")">
+                            <div class="summary-inline-title">AI总结</div>
+                            <div class="summary-inline-content">@((MarkupString)FormatSummary(item.Summary.Content))</div>
+                            <div class="summary-inline-time">@FormatDisplayTime(item.Summary.Timestamp)</div>
+                        </div>
+                    }
+                    else if (item.Message is not null)
+                    {
+                        var msg = item.Message;
+                        var isMine = msg.ClientUid == Me.Uid;
+                        <div class="chat-bubble @(isMine ? "mine" : "theirs")">
+                            @if (!isMine)
+                            {
+                                <div class="bubble-name">@SessionMgr.ResolveDisplayName(msg.ClientName)</div>
+                            }
+                            <div class="bubble-text">@msg.Text</div>
+                            <div class="bubble-time">@FormatDisplayTime(msg.Timestamp)</div>
+                        </div>
+                    }
+                }
+
+                @if (_sessionEnded)
+                {
+                    <div class="session-divider">
+                        <span>—— 游戏结束 ——</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (_showStatsPanel)
+        {
+            <div class="side-panel">
+                <div class="stats-section">
+                    <div class="stats-header">
+                        <h4>成员统计</h4>
+                        <div class="stats-subtitle">今日在线时长 / 总说话次数</div>
+                    </div>
+
+                    @if (_memberStats.Count == 0)
+                    {
+                        <p class="muted">暂无成员数据</p>
+                    }
+                    else
+                    {
+                        <div class="stats-overview">
+                            <span class="overview-pill">在线 @(_memberStats.Count(s => s.IsOnline)) 人</span>
+                            <span class="overview-pill">累计 @_memberStats.Count 人</span>
+                        </div>
+
+                        @foreach (var stat in _memberStats)
+                        {
+                            <div class="member-stat-card">
+                                <div class="member-stat-top">
+                                    <div class="member-stat-name">@stat.DisplayName</div>
+                                    <span class="member-state @(stat.IsOnline ? "online" : "offline")">
+                                        @(stat.IsOnline ? "在线" : "离线")
+                                    </span>
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(stat.RawName) && !string.Equals(stat.RawName, stat.DisplayName, StringComparison.Ordinal))
+                                {
+                                    <div class="member-stat-alias">昵称：@stat.RawName</div>
+                                }
+
+                                <div class="member-stat-metrics">
+                                    <div class="member-metric">
+                                        <span>今日在线</span>
+                                        <strong>@FormatDuration(stat.TodayOnlineDuration)</strong>
+                                    </div>
+                                    <div class="member-metric">
+                                        <span>总说话</span>
+                                        <strong>@stat.SpeechCount 次</strong>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private sealed class SavedAuthState
+    {
+        public string? Uid { get; set; }
+        public string? DisplayName { get; set; }
+        public string? Subchannel { get; set; }
+        public string? AiProvider { get; set; }
+        public string? AiModel { get; set; }
+        public string? AiTone { get; set; }
+    }
+
+    [SupplyParameterFromQuery(Name = "subchannel")]
+    public string? SubChannel { get; set; }
+
+    private sealed class MemberStatItem
+    {
+        public string Key { get; init; } = "";
+        public string DisplayName { get; set; } = "";
+        public string RawName { get; set; } = "";
+        public string? ClientUid { get; set; }
+        public int SpeechCount { get; set; }
+        public DateTime? FirstSeenToday { get; set; }
+        public DateTime? LastSeenToday { get; set; }
+        public TimeSpan TodayOnlineDuration { get; set; }
+        public bool IsOnline { get; set; }
+    }
+
+    private static readonly TimeZoneInfo East8TimeZone = ResolveEast8TimeZone();
+
+    private string _channelName = "Default";
+    private List<ChatMessage> _messages = new();
+    private List<AiSummary> _summaries = new();
+    private List<MemberStatItem> _memberStats = new();
+    private List<ClientRegistry.ChannelInfo> _availableChannels = new();
+    private ushort? _currentClientId;
+    private bool _sessionEnded;
+    private bool _showStatsPanel = true;
+    private bool _manualSummaryBusy;
+    private string _selectedAiChoice = "auto";
+    private string _selectedAiTone = "standard";
+    private ElementReference _messagesDiv;
+    private Timer? _refreshTimer;
+    private bool _subscribed;
+
+    private record TimelineItem(DateTime Timestamp, ChatMessage? Message, AiSummary? Summary)
+    {
+        public bool IsSummary => Summary is not null;
+    }
+
+    protected override void OnInitialized()
+    {
+        SyncAiSelectionFromRuntime();
+        if (Me.IsAuthenticated)
+            ActivateCurrentUserContext();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        if (!Me.IsAuthenticated)
+        {
+            var saved = await JS.InvokeAsync<SavedAuthState?>("tsaiAuth.load");
+            ApplySavedAiPreferences(saved);
+            if (saved is not null && !string.IsNullOrWhiteSpace(saved.Uid))
+            {
+                Me.Uid = saved.Uid;
+                Me.DisplayName = saved.DisplayName;
+                if (string.IsNullOrWhiteSpace(SubChannel))
+                    SubChannel = saved.Subchannel;
+            }
+        }
+
+        if (Me.IsAuthenticated)
+        {
+            ActivateCurrentUserContext();
+            await SaveClientStateAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ActivateCurrentUserContext()
+    {
+        RefreshRegistryState();
+        LoadChannel(SubChannel ?? ResolveCurrentChannel() ?? "Default");
+
+        if (!_subscribed)
+        {
+            SessionMgr.OnMessage += HandleMessage;
+            SessionMgr.OnSummary += HandleSummary;
+            SessionMgr.OnSessionEnded += HandleSessionEnded;
+            _subscribed = true;
+        }
+
+        _refreshTimer ??= new Timer(_ => InvokeAsync(() =>
+        {
+            RefreshRegistryState();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private string? ResolveCurrentChannel()
+    {
+        if (string.IsNullOrWhiteSpace(Me.Uid)) return null;
+        var info = Registry.FindByUid(Me.Uid);
+        if (info == null) return null;
+        return info.ChannelId > 0
+            ? $"{info.Server}#ch-{info.ChannelId}"
+            : $"{info.Server}#general";
+    }
+
+    private void RefreshRegistryState()
+    {
+        _availableChannels = Registry.GetActiveChannels().ToList();
+        var info = string.IsNullOrWhiteSpace(Me.Uid) ? null : Registry.FindByUid(Me.Uid);
+        _currentClientId = info?.ClientId;
+        RefreshMemberStats();
+    }
+
+    private void LoadChannel(string channelName)
+    {
+        _channelName = channelName;
+        var state = SessionMgr.GetOrCreateChannel(_channelName);
+        _messages = state.CurrentSession.Messages.ToList();
+        _summaries = state.CurrentSession.Summaries.ToList();
+        RefreshMemberStats();
+    }
+
+    private async Task SwitchChannel(ChangeEventArgs e)
+    {
+        var next = e.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(next) || next == _channelName) return;
+        LoadChannel(next);
+        await SaveClientStateAsync();
+        Nav.NavigateTo($"/tsai/channel?subchannel={Uri.EscapeDataString(next)}");
+    }
+
+    private async Task SwitchAiChoice(ChangeEventArgs e)
+    {
+        _selectedAiChoice = e.Value?.ToString() ?? "auto";
+        if (_selectedAiChoice.StartsWith("grok:", StringComparison.OrdinalIgnoreCase) && _selectedAiTone == "standard")
+            _selectedAiTone = "bold";
+
+        AiOptions.SetSelection(_selectedAiChoice, _selectedAiTone);
+        SyncAiSelectionFromRuntime();
+        await SaveClientStateAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SwitchAiTone(ChangeEventArgs e)
+    {
+        _selectedAiTone = e.Value?.ToString() == "bold" ? "bold" : "standard";
+        AiOptions.SetTone(_selectedAiTone);
+        SyncAiSelectionFromRuntime();
+        await SaveClientStateAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ApplySavedAiPreferences(SavedAuthState? saved)
+    {
+        if (saved is null)
+        {
+            SyncAiSelectionFromRuntime();
+            return;
+        }
+
+        var choiceId = string.IsNullOrWhiteSpace(saved.AiProvider) || string.Equals(saved.AiProvider, "auto", StringComparison.OrdinalIgnoreCase)
+            ? "auto"
+            : string.IsNullOrWhiteSpace(saved.AiModel)
+                ? saved.AiProvider!
+                : $"{saved.AiProvider}:{saved.AiModel}";
+
+        AiOptions.SetSelection(choiceId, saved.AiTone);
+        SyncAiSelectionFromRuntime();
+    }
+
+    private void SyncAiSelectionFromRuntime()
+    {
+        _selectedAiChoice = AiOptions.CurrentSelectionId;
+        _selectedAiTone = AiOptions.Tone;
+    }
+
+    private ValueTask SaveClientStateAsync() =>
+        JS.InvokeVoidAsync("tsaiAuth.save", Me.Uid, Me.DisplayName, _channelName, AiOptions.Provider, AiOptions.Model, _selectedAiTone);
+
+    private string FormatChannelLabel(string channelKey)
+    {
+        if (string.IsNullOrWhiteSpace(channelKey)) return "未选择频道";
+        var info = _availableChannels.FirstOrDefault(c => c.Key == channelKey);
+        if (info is not null)
+            return $"{info.Server} · {info.DisplayName}";
+
+        var hash = channelKey.IndexOf("#ch-", StringComparison.OrdinalIgnoreCase);
+        return hash >= 0 ? $"{channelKey[..hash]} · 频道 {channelKey[(hash + 4)..]}" : channelKey;
+    }
+
+    private static string FormatChannelOption(ClientRegistry.ChannelInfo ch)
+    {
+        var prefix = ch.Depth > 0 ? new string(' ', ch.Depth * 2) + "↳ " : string.Empty;
+        return $"{ch.Server} · {prefix}{ch.DisplayName} ({ch.UserCount}人)";
+    }
+
+    private void HandleMessage(string channel, ChatMessage msg)
+    {
+        if (channel != _channelName) return;
+        InvokeAsync(() =>
+        {
+            var idx = _messages.FindIndex(m => m.Id == msg.Id);
+            if (idx >= 0)
+                _messages[idx] = msg;
+            else
+                _messages.Add(msg);
+
+            _sessionEnded = false;
+            RefreshMemberStats();
+            StateHasChanged();
+        });
+    }
+
+    private void HandleSummary(string channel, AiSummary summary)
+    {
+        if (channel != _channelName) return;
+        InvokeAsync(() =>
+        {
+            // replace if updated, else add
+            var idx = _summaries.FindIndex(s => s.Id == summary.Id);
+            if (idx >= 0)
+                _summaries[idx] = summary;
+            else
+                _summaries.Add(summary);
+            StateHasChanged();
+        });
+    }
+
+    private void HandleSessionEnded(string channel)
+    {
+        if (channel != _channelName) return;
+        InvokeAsync(() =>
+        {
+            _sessionEnded = true;
+            var state = SessionMgr.GetOrCreateChannel(_channelName);
+            _messages = state.CurrentSession.Messages.ToList();
+            _summaries = state.CurrentSession.Summaries.ToList();
+            RefreshMemberStats();
+            StateHasChanged();
+        });
+    }
+
+    private async Task TriggerManualSummaryAsync()
+    {
+        if (_manualSummaryBusy || string.IsNullOrWhiteSpace(_channelName))
+            return;
+
+        _manualSummaryBusy = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await SessionMgr.GenerateSummaryNowAsync(_channelName);
+        }
+        finally
+        {
+            _manualSummaryBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void ToggleStatsPanel() => _showStatsPanel = !_showStatsPanel;
+
+    private void RefreshMemberStats()
+    {
+        var now = DateTime.UtcNow;
+        var localNow = ToEast8Time(now);
+        var todayStartLocal = localNow.Date;
+        var todayStart = TimeZoneInfo.ConvertTimeToUtc(todayStartLocal, East8TimeZone);
+        var stats = new Dictionary<string, MemberStatItem>(StringComparer.OrdinalIgnoreCase);
+
+        MemberStatItem GetOrCreate(string key, string rawName, string? uid)
+        {
+            if (!stats.TryGetValue(key, out var item))
+            {
+                item = new MemberStatItem
+                {
+                    Key = key,
+                    RawName = rawName,
+                    DisplayName = string.IsNullOrWhiteSpace(rawName) ? "未知成员" : SessionMgr.ResolveDisplayName(rawName),
+                    ClientUid = uid
+                };
+                stats[key] = item;
+            }
+            else
+            {
+                if (!string.IsNullOrWhiteSpace(rawName))
+                {
+                    item.RawName = rawName;
+                    item.DisplayName = SessionMgr.ResolveDisplayName(rawName);
+                }
+
+                if (string.IsNullOrWhiteSpace(item.ClientUid) && !string.IsNullOrWhiteSpace(uid))
+                    item.ClientUid = uid;
+            }
+
+            return item;
+        }
+
+        var state = SessionMgr.GetOrCreateChannel(_channelName);
+        foreach (var msg in state.PastSessions.SelectMany(s => s.Messages).Concat(state.CurrentSession.Messages))
+        {
+            var key = !string.IsNullOrWhiteSpace(msg.ClientUid) ? msg.ClientUid : $"nick:{msg.ClientName}";
+            var item = GetOrCreate(key, msg.ClientName, msg.ClientUid);
+            item.SpeechCount++;
+
+            if (msg.Timestamp >= todayStart)
+            {
+                item.FirstSeenToday = item.FirstSeenToday is null ? msg.Timestamp : Min(item.FirstSeenToday.Value, msg.Timestamp);
+                item.LastSeenToday = item.LastSeenToday is null ? msg.Timestamp : Max(item.LastSeenToday.Value, msg.Timestamp);
+            }
+        }
+
+        var channelInfo = _availableChannels.FirstOrDefault(c => c.Key == _channelName);
+        if (channelInfo is not null)
+        {
+            var activeClients = Registry.GetActive()
+                .Where(c => c.Server == channelInfo.Server && c.ChannelId == channelInfo.ChannelId)
+                .GroupBy(c => !string.IsNullOrWhiteSpace(c.Uid) ? c.Uid : $"nick:{c.Nickname}", StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderByDescending(c => c.LastSeen).First());
+
+            foreach (var client in activeClients)
+            {
+                var key = !string.IsNullOrWhiteSpace(client.Uid) ? client.Uid : $"nick:{client.Nickname}";
+                var item = GetOrCreate(key, client.Nickname, client.Uid);
+                var firstSeen = client.FirstSeen < todayStart ? todayStart : client.FirstSeen;
+                var lastSeen = client.LastSeen > now ? now : client.LastSeen;
+                item.FirstSeenToday = item.FirstSeenToday is null ? firstSeen : Min(item.FirstSeenToday.Value, firstSeen);
+                item.LastSeenToday = item.LastSeenToday is null ? lastSeen : Max(item.LastSeenToday.Value, lastSeen);
+                item.IsOnline = item.IsOnline || (now - client.LastSeen) <= TimeSpan.FromSeconds(20);
+            }
+        }
+
+        foreach (var item in stats.Values)
+        {
+            var start = item.FirstSeenToday ?? todayStart;
+            var end = item.IsOnline ? now : (item.LastSeenToday ?? start);
+            if (end < start) end = start;
+            item.TodayOnlineDuration = end - start;
+        }
+
+        _memberStats = stats.Values
+            .OrderByDescending(x => x.IsOnline)
+            .ThenByDescending(x => x.TodayOnlineDuration)
+            .ThenByDescending(x => x.SpeechCount)
+            .ThenBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static DateTime Min(DateTime left, DateTime right) => left <= right ? left : right;
+    private static DateTime Max(DateTime left, DateTime right) => left >= right ? left : right;
+
+    private static string FormatDisplayTime(DateTime timestamp) =>
+        ToEast8Time(timestamp).ToString("HH:mm:ss");
+
+    private static DateTime ToEast8Time(DateTime timestamp)
+    {
+        var utc = timestamp.Kind switch
+        {
+            DateTimeKind.Utc => timestamp,
+            DateTimeKind.Local => timestamp.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(timestamp, DateTimeKind.Utc)
+        };
+
+        return TimeZoneInfo.ConvertTimeFromUtc(utc, East8TimeZone);
+    }
+
+    private static TimeZoneInfo ResolveEast8TimeZone()
+    {
+        foreach (var id in new[] { "Asia/Shanghai", "China Standard Time" })
+        {
+            try
+            {
+                return TimeZoneInfo.FindSystemTimeZoneById(id);
+            }
+            catch
+            {
+            }
+        }
+
+        return TimeZoneInfo.CreateCustomTimeZone("UTC+08", TimeSpan.FromHours(8), "UTC+08", "UTC+08");
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration < TimeSpan.Zero)
+            duration = TimeSpan.Zero;
+
+        if (duration.TotalHours >= 1)
+            return $"{(int)duration.TotalHours}小时{duration.Minutes}分";
+
+        if (duration.TotalMinutes >= 1)
+            return $"{(int)duration.TotalMinutes}分{duration.Seconds}秒";
+
+        return $"{Math.Max(0, (int)duration.TotalSeconds)}秒";
+    }
+
+    private List<TimelineItem> BuildTimeline()
+    {
+        var list = new List<TimelineItem>(_messages.Count + _summaries.Count);
+        list.AddRange(_messages.Select(m => new TimelineItem(m.Timestamp, m, null)));
+        list.AddRange(_summaries.Select(s => new TimelineItem(s.Timestamp, null, s)));
+        return list.OrderBy(x => x.Timestamp).ToList();
+    }
+
+    private string FormatSummary(string raw)
+    {
+        // bold user names marked with **name**
+        return System.Text.RegularExpressions.Regex.Replace(
+            System.Web.HttpUtility.HtmlEncode(raw),
+            @"\*\*(.*?)\*\*",
+            "<strong>$1</strong>");
+    }
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+        if (_subscribed)
+        {
+            SessionMgr.OnMessage -= HandleMessage;
+            SessionMgr.OnSummary -= HandleSummary;
+            SessionMgr.OnSessionEnded -= HandleSessionEnded;
+        }
+    }
+}

@@ -53,3 +53,13 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Local environment and runtime data
+backend/.env
+backend/data/
+backend/bin/
+backend/obj/
+
+# Plugin build and install artifacts
+ts_plugin/out/
+ts_plugin/install/*.cfg

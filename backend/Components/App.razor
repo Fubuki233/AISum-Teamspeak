@@ -1,0 +1,73 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["TsAi.styles.css"]" />
+    <ImportMap />
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <HeadOutlet />
+</head>
+
+<body>
+    <Routes />
+    <script src="_framework/blazor.web.js"></script>
+    <script>
+        window.tsaiAuth = {
+            save: function (uid, displayName, subchannel, aiProvider, aiModel, aiTone) {
+                let current = {};
+                try {
+                    current = JSON.parse(localStorage.getItem('tsai.auth') || '{}') || {};
+                } catch {}
+
+                localStorage.setItem('tsai.auth', JSON.stringify({
+                    uid,
+                    displayName,
+                    subchannel,
+                    aiProvider: aiProvider ?? current.aiProvider,
+                    aiModel: aiModel ?? current.aiModel,
+                    aiTone: aiTone ?? current.aiTone
+                }));
+            },
+            load: function () {
+                try {
+                    return JSON.parse(localStorage.getItem('tsai.auth') || 'null');
+                } catch {
+                    return null;
+                }
+            },
+            clear: function () {
+                localStorage.removeItem('tsai.auth');
+            }
+        };
+
+        // Show the actual exception message inside #blazor-error-ui
+        Blazor.start().then(() => {
+            Blazor.addEventListener('enhancedload', () => {});
+        });
+        window.addEventListener('error', function (e) {
+            var msg = document.querySelector('#blazor-error-ui .blazor-error-message');
+            if (msg && e.message) msg.textContent = ' — ' + e.message;
+        });
+        // Intercept Blazor's own error handler to inject message before the div is shown
+        document.addEventListener('DOMContentLoaded', function () {
+            var observer = new MutationObserver(function () {
+                var ui = document.getElementById('blazor-error-ui');
+                if (ui && ui.style.display !== 'none') {
+                    var detail = document.querySelector('.exception-message') ||
+                                 document.querySelector('[id^="blazor-error"]');
+                    var msgEl = ui.querySelector('.blazor-error-message');
+                    if (msgEl && detail && !msgEl.textContent)
+                        msgEl.textContent = ' — ' + detail.textContent;
+                }
+            });
+            observer.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['style'] });
+        });
+    </script>
+</body>
+
+</html>

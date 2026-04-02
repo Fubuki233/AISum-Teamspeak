@@ -1,0 +1,32 @@
+# TsAi Blazor Server App
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+
+WORKDIR /src
+COPY TsAi.csproj .
+RUN dotnet restore
+
+COPY . .
+RUN dotnet publish -c Release -o /app/publish --no-restore
+
+# ---- Runtime stage ----
+FROM mcr.microsoft.com/dotnet/aspnet:9.0
+
+# Runtime dependencies for summary + DashScope STT helper
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    tzdata libasound2 libssl3 ca-certificates python3 python3-pip \
+    && ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo Asia/Shanghai > /etc/timezone \
+    && python3 -m pip install --no-cache-dir --break-system-packages dashscope \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=build /app/publish .
+
+ENV ASPNETCORE_URLS=http://+:5000
+ENV ASPNETCORE_ENVIRONMENT=Production
+ENV TZ=Asia/Shanghai
+
+EXPOSE 5000/tcp
+EXPOSE 9988/udp
+
+ENTRYPOINT ["dotnet", "TsAi.dll"]

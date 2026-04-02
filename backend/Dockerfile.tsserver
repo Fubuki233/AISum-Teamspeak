@@ -1,0 +1,44 @@
+# TS Server with REST API + Voice Forwarding
+# Multi-stage: build our customized main.c, then run with prebuilt libts3server.so
+
+FROM debian:bookworm-slim AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake ninja-build gcc g++ make ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /sdk
+COPY include/ include/
+COPY cmake/ cmake/
+COPY bin/linux/amd64/ bin/linux/amd64/
+COPY examples/ examples/
+
+WORKDIR /sdk/examples/build
+RUN cmake -G Ninja .. && ninja ts_server
+
+# ---- Runtime stage ----
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy built binary + shared library
+COPY --from=build /sdk/examples/build/ts_server/bin/ts_server .
+COPY --from=build /sdk/examples/build/ts_server/bin/libts3server.so .
+
+# TS server needs a writable directory for license/keypair files
+RUN mkdir -p /app/data
+
+ENV LD_LIBRARY_PATH=/app
+ENV TS_API_KEY=changeme
+
+# ts3 server default voice port + REST API + Voice forwarding UDP
+EXPOSE 9987/udp
+EXPOSE 8080/tcp
+EXPOSE 9988/udp
+
+WORKDIR /app/data
+ENTRYPOINT ["/app/ts_server"]

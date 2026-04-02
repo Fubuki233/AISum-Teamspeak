@@ -1,0 +1,39 @@
+services:
+  tsai:
+    build:
+      context: .
+      dockerfile: Dockerfile.tsai
+    container_name: tsai
+    environment:
+      - ASPNETCORE_URLS=http://+:5002
+      - ASPNETCORE_ENVIRONMENT=Development
+      - TZ=Asia/Shanghai
+      - Voice__UdpPort=9988
+      - Azure__SpeechKey=${AZURE_SPEECH_KEY}
+      - Azure__SpeechRegion=${AZURE_SPEECH_REGION:-japanwest}
+      - Azure__SpeechLanguage=${AZURE_SPEECH_LANGUAGE:-zh-CN}
+      - Doubao__BaseUrl=https://ark.cn-beijing.volces.com/api/v3/
+      - Doubao__ApiKey=${DOUBAO_API_KEY}
+      - Doubao__EndpointId=${DOUBAO_ENDPOINT_ID:-doubao-seed-2-0-lite-260215}
+      - DashScope__ApiKey=${DASHSCOPE_API_KEY}
+      - DashScope__SttModel=${DASHSCOPE_STT_MODEL:-fun-asr-realtime-2026-02-28}
+      - DashScope__ChatBaseUrl=${DASHSCOPE_CHAT_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1/}
+      - DashScope__ChatModel=${DASHSCOPE_CHAT_MODEL:-qwen-turbo}
+      - DashScope__PythonPath=python3
+      - XAI__ApiKey=${XAI_API_KEY}
+      - XAI__BaseUrl=${XAI_BASE_URL:-https://api.x.ai/v1/}
+      - XAI__Model=${XAI_MODEL:-grok-4-1-fast-non-reasoning}
+    volumes:
+      - ./data/keys:/app/keys
+      - ./data:/app/data
+    dns:
+      - 223.5.5.5
+      - 1.1.1.1
+      - 8.8.8.8
+    dns_opt:
+      - timeout:2
+      - attempts:2
+    network_mode: host
+    restart: unless-stopped
+
+

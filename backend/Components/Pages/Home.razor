@@ -1,0 +1,119 @@
+﻿@page "/"
+@rendermode InteractiveServer
+@inject CurrentUser Me
+@inject NavigationManager Nav
+@inject ClientRegistry Registry
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>TS AI 登录</PageTitle>
+
+<div class="login-container">
+    <div class="login-card">
+        <h2>TS AI 语音总结</h2>
+        <p class="subtitle">选择你的 TeamSpeak 身份</p>
+
+        @if (_clients.Count == 0)
+        {
+            <div class="alert alert-info">
+                等待插件连接…<br/>
+                <small>请确认 ts_voice_forwarder 插件已在 TS3 中启用并已连接到服务器。</small>
+            </div>
+        }
+        else
+        {
+            <div class="client-list">
+                @foreach (var c in _clients)
+                {
+                    <button class="btn btn-client" @onclick="() => Select(c)">
+                        <span class="nick">@c.Nickname</span>
+                        <span class="server">@c.Server</span>
+                        <span class="user-meta">ID: @c.ClientId · 频道: @FormatChannel(c.ChannelId, c.ChannelName)</span>
+                    </button>
+                }
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger mt-2">@_error</div>
+        }
+
+        <button class="btn btn-link btn-sm mt-2" @onclick="Refresh">刷新列表</button>
+    </div>
+</div>
+
+@code {
+    private sealed class SavedAuthState
+    {
+        public string? Uid { get; set; }
+        public string? DisplayName { get; set; }
+        public string? Subchannel { get; set; }
+    }
+
+    private List<ClientRegistry.ClientInfo> _clients = [];
+    private string? _error;
+    private Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        Refresh();
+        // auto-refresh every 2 s so newly connected clients appear immediately
+        _timer = new Timer(_ => InvokeAsync(() => { Refresh(); StateHasChanged(); }),
+                           null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || Me.IsAuthenticated) return;
+
+        var saved = await JS.InvokeAsync<SavedAuthState?>("tsaiAuth.load");
+        if (saved is null || string.IsNullOrWhiteSpace(saved.Uid)) return;
+
+        Me.Uid = saved.Uid;
+        Me.DisplayName = saved.DisplayName;
+
+        var info = Registry.FindByUid(saved.Uid);
+        var subchannel = !string.IsNullOrWhiteSpace(saved.Subchannel)
+            ? saved.Subchannel
+            : info is null
+                ? null
+                : info.ChannelId > 0 ? $"{info.Server}#ch-{info.ChannelId}" : $"{info.Server}#general";
+
+        if (!string.IsNullOrWhiteSpace(subchannel))
+            Nav.NavigateTo($"/tsai/channel?subchannel={Uri.EscapeDataString(subchannel)}", replace: true);
+    }
+
+    public void Dispose() => _timer?.Dispose();
+
+    private void Refresh()
+    {
+        _clients = Registry.GetActive().ToList();
+    }
+
+    private async Task Select(ClientRegistry.ClientInfo c)
+    {
+        if (string.IsNullOrEmpty(c.Uid))
+        {
+            _error = "该客户端尚未提供 UID，请稍后重试。";
+            return;
+        }
+
+        Me.Uid = c.Uid;
+        Me.DisplayName = c.Nickname;
+
+        var subchannel = c.ChannelId > 0
+            ? $"{c.Server}#ch-{c.ChannelId}"
+            : $"{c.Server}#general";
+
+        await JS.InvokeVoidAsync("tsaiAuth.save", c.Uid, c.Nickname, subchannel);
+        Nav.NavigateTo($"/tsai/channel?subchannel={Uri.EscapeDataString(subchannel)}");
+    }
+
+    private static string FormatChannel(ulong channelId, string? channelName) =>
+        !string.IsNullOrWhiteSpace(channelName)
+            ? channelName!
+            : channelId > 0 ? $"频道 #{channelId}" : "General";
+}
+
+
