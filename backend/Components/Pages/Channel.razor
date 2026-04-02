@@ -10,152 +10,149 @@
 
 <PageTitle>TS AI - @_channelName</PageTitle>
 
-@if (!Me.IsAuthenticated)
-{
-    <p>请先<a href="/">登录</a>。</p>
-}
-else
-{
-    <div class="channel-layout @(_showStatsPanel ? string.Empty : "side-panel-hidden")">
-        @* ---- Left: Chat area ---- *@
-        <div class="chat-area">
-            <div class="chat-header">
-                <h3>@FormatChannelLabel(_channelName)</h3>
-                <span class="user-badge">@Me.DisplayName</span>
+<div class="channel-layout @(_showStatsPanel ? string.Empty : "side-panel-hidden")">
+    @* ---- Left: Chat area ---- *@
+    <div class="chat-area">
+        <div class="chat-header">
+            <h3>@FormatChannelLabel(_channelName)</h3>
+            <span class="user-badge">@(Me.IsAuthenticated ? Me.DisplayName : "游客模式")</span>
+        </div>
+
+        <div class="chat-subheader">
+            <div class="chat-meta">
+                <span>当前频道：@FormatChannelLabel(_channelName)</span>
+                @if (!Me.IsAuthenticated)
+                {
+                    <span>未登录，仅可旁观内容</span>
+                }
             </div>
+            <div class="chat-controls">
+                @if (_availableChannels.Count > 0)
+                {
+                    <select class="channel-select" value="@_channelName" @onchange="SwitchChannel">
+                        @foreach (var ch in _availableChannels)
+                        {
+                            <option value="@ch.Key">@FormatChannelOption(ch)</option>
+                        }
+                    </select>
+                }
 
-            <div class="chat-subheader">
-                <div class="chat-meta">
-                    <span>当前频道：@FormatChannelLabel(_channelName)</span>
+                <div class="ai-picker">
+                    <span class="ai-picker-label">AI</span>
+                    <select class="channel-select ai-select" value="@_selectedAiChoice" @onchange="SwitchAiChoice">
+                        @foreach (var choice in AiOptions.Choices)
+                        {
+                            <option value="@choice.Id">@choice.Label</option>
+                        }
+                    </select>
+                    <select class="channel-select ai-tone-select" value="@_selectedAiTone" @onchange="SwitchAiTone">
+                        <option value="standard">普通</option>
+                        <option value="bold">串子</option>
+                    </select>
                 </div>
-                <div class="chat-controls">
-                    @if (_availableChannels.Count > 0)
-                    {
-                        <select class="channel-select" value="@_channelName" @onchange="SwitchChannel">
-                            @foreach (var ch in _availableChannels)
-                            {
-                                <option value="@ch.Key">@FormatChannelOption(ch)</option>
-                            }
-                        </select>
-                    }
 
-                    <div class="ai-picker">
-                        <span class="ai-picker-label">AI</span>
-                        <select class="channel-select ai-select" value="@_selectedAiChoice" @onchange="SwitchAiChoice">
-                            @foreach (var choice in AiOptions.Choices)
-                            {
-                                <option value="@choice.Id">@choice.Label</option>
-                            }
-                        </select>
-                        <select class="channel-select ai-tone-select" value="@_selectedAiTone" @onchange="SwitchAiTone">
-                            <option value="standard">普通</option>
-                            <option value="bold">串子</option>
-                        </select>
-                    </div>
+                <button type="button" class="panel-toggle-btn summary-trigger-btn" @onclick="TriggerManualSummaryAsync" disabled="@_manualSummaryBusy">
+                    @(_manualSummaryBusy ? "总结中..." : "手动总结")
+                </button>
 
-                    <button type="button" class="panel-toggle-btn summary-trigger-btn" @onclick="TriggerManualSummaryAsync" disabled="@_manualSummaryBusy">
-                        @(_manualSummaryBusy ? "总结中..." : "手动总结")
-                    </button>
-
-                    <button type="button" class="panel-toggle-btn" @onclick="ToggleStatsPanel">
-                        @(_showStatsPanel ? "隐藏统计" : "显示统计")
-                    </button>
-                </div>
-            </div>
-
-            <div class="chat-messages" @ref="_messagesDiv">
-                @if (BuildTimeline().Count == 0)
-                {
-                    <div class="muted">...</div>
-                }
-
-                @foreach (var item in BuildTimeline())
-                {
-                    if (item.IsSummary && item.Summary is not null)
-                    {
-                        <div class="summary-inline @(item.Summary.WasUpdated ? "updated" : "")">
-                            <div class="summary-inline-title">AI总结</div>
-                            <div class="summary-inline-content">@((MarkupString)FormatSummary(item.Summary.Content))</div>
-                            <div class="summary-inline-time">@FormatDisplayTime(item.Summary.Timestamp)</div>
-                        </div>
-                    }
-                    else if (item.Message is not null)
-                    {
-                        var msg = item.Message;
-                        var isMine = msg.ClientUid == Me.Uid;
-                        <div class="chat-bubble @(isMine ? "mine" : "theirs")">
-                            @if (!isMine)
-                            {
-                                <div class="bubble-name">@SessionMgr.ResolveDisplayName(msg.ClientName)</div>
-                            }
-                            <div class="bubble-text">@msg.Text</div>
-                            <div class="bubble-time">@FormatDisplayTime(msg.Timestamp)</div>
-                        </div>
-                    }
-                }
-
-                @if (_sessionEnded)
-                {
-                    <div class="session-divider">
-                        <span>—— 游戏结束 ——</span>
-                    </div>
-                }
+                <button type="button" class="panel-toggle-btn" @onclick="ToggleStatsPanel">
+                    @(_showStatsPanel ? "隐藏统计" : "显示统计")
+                </button>
             </div>
         </div>
 
-        @if (_showStatsPanel)
-        {
-            <div class="side-panel">
-                <div class="stats-section">
-                    <div class="stats-header">
-                        <h4>成员统计</h4>
-                        <div class="stats-subtitle">今日在线时长 / 总说话次数</div>
+        <div class="chat-messages" @ref="_messagesDiv">
+            @if (BuildTimeline().Count == 0)
+            {
+                <div class="muted">...</div>
+            }
+
+            @foreach (var item in BuildTimeline())
+            {
+                if (item.IsSummary && item.Summary is not null)
+                {
+                    <div class="summary-inline @(item.Summary.WasUpdated ? "updated" : "")">
+                        <div class="summary-inline-title">AI总结</div>
+                        <div class="summary-inline-content">@((MarkupString)FormatSummary(item.Summary.Content))</div>
+                        <div class="summary-inline-time">@FormatDisplayTime(item.Summary.Timestamp)</div>
+                    </div>
+                }
+                else if (item.Message is not null)
+                {
+                    var msg = item.Message;
+                    var isMine = Me.IsAuthenticated && !string.IsNullOrWhiteSpace(Me.Uid) && msg.ClientUid == Me.Uid;
+                    <div class="chat-bubble @(isMine ? "mine" : "theirs")">
+                        @if (!isMine)
+                        {
+                            <div class="bubble-name">@SessionMgr.ResolveDisplayName(msg.ClientName)</div>
+                        }
+                        <div class="bubble-text">@msg.Text</div>
+                        <div class="bubble-time">@FormatDisplayTime(msg.Timestamp)</div>
+                    </div>
+                }
+            }
+
+            @if (_sessionEnded)
+            {
+                <div class="session-divider">
+                    <span>—— 游戏结束 ——</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (_showStatsPanel)
+    {
+        <div class="side-panel">
+            <div class="stats-section">
+                <div class="stats-header">
+                    <h4>成员统计</h4>
+                    <div class="stats-subtitle">今日在线时长 / 总说话次数</div>
+                </div>
+
+                @if (_memberStats.Count == 0)
+                {
+                    <p class="muted">暂无成员数据</p>
+                }
+                else
+                {
+                    <div class="stats-overview">
+                        <span class="overview-pill">在线 @(_memberStats.Count(s => s.IsOnline)) 人</span>
+                        <span class="overview-pill">累计 @_memberStats.Count 人</span>
                     </div>
 
-                    @if (_memberStats.Count == 0)
+                    @foreach (var stat in _memberStats)
                     {
-                        <p class="muted">暂无成员数据</p>
-                    }
-                    else
-                    {
-                        <div class="stats-overview">
-                            <span class="overview-pill">在线 @(_memberStats.Count(s => s.IsOnline)) 人</span>
-                            <span class="overview-pill">累计 @_memberStats.Count 人</span>
-                        </div>
+                        <div class="member-stat-card">
+                            <div class="member-stat-top">
+                                <div class="member-stat-name">@stat.DisplayName</div>
+                                <span class="member-state @(stat.IsOnline ? "online" : "offline")">
+                                    @(stat.IsOnline ? "在线" : "离线")
+                                </span>
+                            </div>
 
-                        @foreach (var stat in _memberStats)
-                        {
-                            <div class="member-stat-card">
-                                <div class="member-stat-top">
-                                    <div class="member-stat-name">@stat.DisplayName</div>
-                                    <span class="member-state @(stat.IsOnline ? "online" : "offline")">
-                                        @(stat.IsOnline ? "在线" : "离线")
-                                    </span>
+                            @if (!string.IsNullOrWhiteSpace(stat.RawName) && !string.Equals(stat.RawName, stat.DisplayName, StringComparison.Ordinal))
+                            {
+                                <div class="member-stat-alias">昵称：@stat.RawName</div>
+                            }
+
+                            <div class="member-stat-metrics">
+                                <div class="member-metric">
+                                    <span>今日在线</span>
+                                    <strong>@FormatDuration(stat.TodayOnlineDuration)</strong>
                                 </div>
-
-                                @if (!string.IsNullOrWhiteSpace(stat.RawName) && !string.Equals(stat.RawName, stat.DisplayName, StringComparison.Ordinal))
-                                {
-                                    <div class="member-stat-alias">昵称：@stat.RawName</div>
-                                }
-
-                                <div class="member-stat-metrics">
-                                    <div class="member-metric">
-                                        <span>今日在线</span>
-                                        <strong>@FormatDuration(stat.TodayOnlineDuration)</strong>
-                                    </div>
-                                    <div class="member-metric">
-                                        <span>总说话</span>
-                                        <strong>@stat.SpeechCount 次</strong>
-                                    </div>
+                                <div class="member-metric">
+                                    <span>总说话</span>
+                                    <strong>@stat.SpeechCount 次</strong>
                                 </div>
                             </div>
-                        }
+                        </div>
                     }
-                </div>
+                }
             </div>
-        }
-    </div>
-}
+        </div>
+    }
+</div>
 
 @code {
     private sealed class SavedAuthState
@@ -208,8 +205,7 @@ else
     protected override void OnInitialized()
     {
         SyncAiSelectionFromRuntime();
-        if (Me.IsAuthenticated)
-            ActivateCurrentUserContext();
+        ActivateCurrentUserContext();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -229,18 +225,16 @@ else
             }
         }
 
+        ActivateCurrentUserContext();
         if (Me.IsAuthenticated)
-        {
-            ActivateCurrentUserContext();
             await SaveClientStateAsync();
-            await InvokeAsync(StateHasChanged);
-        }
+        await InvokeAsync(StateHasChanged);
     }
 
     private void ActivateCurrentUserContext()
     {
         RefreshRegistryState();
-        LoadChannel(SubChannel ?? ResolveCurrentChannel() ?? "Default");
+        LoadChannel(SubChannel ?? ResolveCurrentChannel() ?? ResolveFallbackChannel() ?? "Default");
 
         if (!_subscribed)
         {
@@ -256,6 +250,9 @@ else
             StateHasChanged();
         }), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
     }
+
+    private string? ResolveFallbackChannel() =>
+        _availableChannels.FirstOrDefault()?.Key;
 
     private string? ResolveCurrentChannel()
     {
@@ -287,7 +284,8 @@ else
         var next = e.Value?.ToString();
         if (string.IsNullOrWhiteSpace(next) || next == _channelName) return;
         LoadChannel(next);
-        await SaveClientStateAsync();
+        if (Me.IsAuthenticated)
+            await SaveClientStateAsync();
         Nav.NavigateTo($"/tsai/channel?subchannel={Uri.EscapeDataString(next)}");
     }
 
@@ -299,7 +297,8 @@ else
 
         AiOptions.SetSelection(_selectedAiChoice, _selectedAiTone);
         SyncAiSelectionFromRuntime();
-        await SaveClientStateAsync();
+        if (Me.IsAuthenticated)
+            await SaveClientStateAsync();
         await InvokeAsync(StateHasChanged);
     }
 
@@ -308,7 +307,8 @@ else
         _selectedAiTone = e.Value?.ToString() == "bold" ? "bold" : "standard";
         AiOptions.SetTone(_selectedAiTone);
         SyncAiSelectionFromRuntime();
-        await SaveClientStateAsync();
+        if (Me.IsAuthenticated)
+            await SaveClientStateAsync();
         await InvokeAsync(StateHasChanged);
     }
 

@@ -39,6 +39,11 @@
             <div class="alert alert-danger mt-2">@_error</div>
         }
 
+        @if (_availableChannels.Count > 0)
+        {
+            <button class="btn btn-primary mt-2" @onclick="EnterAsGuest">游客进入频道</button>
+        }
+
         <button class="btn btn-link btn-sm mt-2" @onclick="Refresh">刷新列表</button>
     </div>
 </div>
@@ -52,6 +57,7 @@
     }
 
     private List<ClientRegistry.ClientInfo> _clients = [];
+    private List<ClientRegistry.ChannelInfo> _availableChannels = [];
     private string? _error;
     private Timer? _timer;
 
@@ -89,6 +95,19 @@
     private void Refresh()
     {
         _clients = Registry.GetActive().ToList();
+        _availableChannels = Registry.GetActiveChannels().ToList();
+    }
+
+    private void EnterAsGuest()
+    {
+        var target = _availableChannels.FirstOrDefault()?.Key;
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            _error = "当前没有可进入的频道。";
+            return;
+        }
+
+        Nav.NavigateTo($"/tsai/channel?subchannel={Uri.EscapeDataString(target)}");
     }
 
     private async Task Select(ClientRegistry.ClientInfo c)
