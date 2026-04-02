@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.tsai
+      network: host
       args:
         NUGET_SOURCE: ${NUGET_SOURCE:-https://api.nuget.org/v3/index.json}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}

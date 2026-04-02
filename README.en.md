@@ -55,6 +55,8 @@ docker compose up -d --build
 
 Run Docker Compose from `backend/` only. Do not start other `docker-compose.yml` files from the repository root, or you may hit a duplicate `tsai` container name conflict.
 
+If the host machine can access the internet but Docker builds stall at `apt-get update` or `dotnet restore`, the current compose file uses `build.network: host` so the build phase can bypass bridge-network DNS, IPv6, or MTU issues.
+
 Check logs with:
 
 ```bash

@@ -56,6 +56,8 @@ docker compose up -d --build
 
 请直接在 `backend/` 目录执行上述命令，不要在仓库根目录执行其它 `docker-compose.yml`，否则可能因为重复的 `tsai` 容器名发生冲突。
 
+如果宿主机可以访问外网，但 Docker 构建阶段卡在 `apt-get update` 或 `dotnet restore`，当前 compose 已配置构建阶段使用宿主机网络 `build.network: host`，优先绕过 Docker 默认桥接网络的 DNS / IPv6 / MTU 问题。
+
 查看日志：
 
 ```bash
