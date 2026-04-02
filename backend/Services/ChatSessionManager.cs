@@ -252,7 +252,7 @@ public class ChatSessionManager : IDisposable
                     if (!hasEnoughContent || !cooldownSatisfied)
                         continue;
 
-                    var previous = session.Summaries.TakeLast(3).ToList();
+                    var previous = session.Summaries.TakeLast(1).ToList();
                     var nameMap = _names.CurrentMap;
 
                     var result = await _ai.SummarizeAsync(chName, recentMessages, previous, nameMap);
