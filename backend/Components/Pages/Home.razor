@@ -28,7 +28,7 @@
                     <button class="btn btn-client" @onclick="() => Select(c)">
                         <span class="nick">@c.Nickname</span>
                         <span class="server">@c.Server</span>
-                        <span class="user-meta">ID: @c.ClientId · 频道: @FormatChannel(c.ChannelId, c.ChannelName)</span>
+                        <span class="user-meta">频道: @FormatChannel(c.ChannelId, c.ChannelName)</span>
                     </button>
                 }
             </div>

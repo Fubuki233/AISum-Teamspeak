@@ -26,7 +26,6 @@ else
 
             <div class="chat-subheader">
                 <div class="chat-meta">
-                    <span>客户端ID：@(_currentClientId?.ToString() ?? "未知")</span>
                     <span>当前频道：@FormatChannelLabel(_channelName)</span>
                 </div>
                 <div class="chat-controls">
@@ -192,7 +191,6 @@ else
     private List<AiSummary> _summaries = new();
     private List<MemberStatItem> _memberStats = new();
     private List<ClientRegistry.ChannelInfo> _availableChannels = new();
-    private ushort? _currentClientId;
     private bool _sessionEnded;
     private bool _showStatsPanel = true;
     private bool _manualSummaryBusy;
@@ -272,8 +270,6 @@ else
     private void RefreshRegistryState()
     {
         _availableChannels = Registry.GetActiveChannels().ToList();
-        var info = string.IsNullOrWhiteSpace(Me.Uid) ? null : Registry.FindByUid(Me.Uid);
-        _currentClientId = info?.ClientId;
         RefreshMemberStats();
     }
 

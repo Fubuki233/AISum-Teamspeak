@@ -9,6 +9,7 @@ namespace TsAi.Services;
 public class AiSttService : IDisposable
 {
     private readonly ConcurrentDictionary<(string Server, ushort ClientId), BufferState> _buffers = new();
+    private readonly ConcurrentDictionary<(string Server, ushort ClientId), byte> _announcedStreams = new();
     private readonly ByteDanceAiService _ai;
     private readonly ILogger<AiSttService> _log;
     private readonly Timer _flushTimer;
@@ -29,7 +30,18 @@ public class AiSttService : IDisposable
     public void FeedAudio(string serverAddress, ushort clientId, uint frequency, byte[] audioData)
     {
         var key = (serverAddress, clientId);
-        var state = _buffers.GetOrAdd(key, _ => new BufferState { Frequency = frequency });
+        var created = false;
+        var state = _buffers.GetOrAdd(key, _ =>
+        {
+            created = true;
+            return new BufferState { Frequency = frequency };
+        });
+
+        if (created && _announcedStreams.TryAdd(key, 0))
+        {
+            _log.LogInformation("AI-STT stream active for [{Server}] client {Id} @ {Freq}Hz",
+                serverAddress, clientId, frequency);
+        }
 
         lock (state.Gate)
         {
@@ -65,11 +77,18 @@ public class AiSttService : IDisposable
 
             if (payload is null || payload.Length == 0) continue;
 
+            _log.LogInformation("AI-STT flushing [{Server}] client {Id}: {Bytes} bytes @ {Freq}Hz",
+                key.Server, key.ClientId, payload.Length, freq);
+
             var text = await _ai.TranscribePcmAsync(payload, freq);
             if (!string.IsNullOrWhiteSpace(text))
             {
-                _log.LogDebug("AI-STT [{Server}] client {Id}: {Text}", key.Server, key.ClientId, text);
+                _log.LogInformation("AI-STT [{Server}] client {Id}: {Text}", key.Server, key.ClientId, text);
                 OnSpeechRecognized?.Invoke(key.Server, key.ClientId, text);
+            }
+            else
+            {
+                _log.LogInformation("AI-STT produced no text for [{Server}] client {Id}", key.Server, key.ClientId);
             }
         }
     }
@@ -83,6 +102,7 @@ public class AiSttService : IDisposable
                 kv.Value.Pcm.Dispose();
         }
         _buffers.Clear();
+        _announcedStreams.Clear();
     }
 
     private sealed class BufferState

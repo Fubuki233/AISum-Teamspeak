@@ -15,6 +15,8 @@ namespace TsAi.Services;
 public class ByteDanceAiService
 {
     private static readonly TimeZoneInfo SummaryTimeZone = ResolveSummaryTimeZone();
+    private int _dashScopeMissingLogged;
+    private int _summaryProviderMissingLogged;
     private readonly HttpClient _http;
     private readonly string _endpointId;
     private readonly string _doubaoApiKey;
@@ -48,8 +50,15 @@ public class ByteDanceAiService
 
     public async Task<string> TranscribePcmAsync(byte[] pcm16Mono, uint sampleRate)
     {
-        if (pcm16Mono.Length == 0 || string.IsNullOrWhiteSpace(_dashScopeApiKey))
+        if (pcm16Mono.Length == 0)
             return "";
+
+        if (string.IsNullOrWhiteSpace(_dashScopeApiKey))
+        {
+            if (Interlocked.Exchange(ref _dashScopeMissingLogged, 1) == 0)
+                _log.LogWarning("DashScope STT is disabled because DashScope:ApiKey is empty");
+            return "";
+        }
 
         var wav = BuildWavFromPcm16Mono(pcm16Mono, sampleRate);
         var tempFile = Path.Combine(Path.GetTempPath(), $"tsai-stt-{Guid.NewGuid():N}.wav");
@@ -296,6 +305,14 @@ public class ByteDanceAiService
             var result = await provider();
             if (!string.IsNullOrWhiteSpace(result))
                 return result;
+        }
+
+        if (Interlocked.Exchange(ref _summaryProviderMissingLogged, 1) == 0 &&
+            string.IsNullOrWhiteSpace(_doubaoApiKey) &&
+            string.IsNullOrWhiteSpace(_dashScopeApiKey) &&
+            string.IsNullOrWhiteSpace(_xaiApiKey))
+        {
+            _log.LogWarning("AI summary is disabled because no provider API key is configured");
         }
 
         return "";
