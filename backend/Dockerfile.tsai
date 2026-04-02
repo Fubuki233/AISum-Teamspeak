@@ -10,9 +10,20 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG NUGET_SOURCE
 
+ENV DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1 \
+    DOTNET_SYSTEM_NET_DISABLEIPV6=1 \
+    NUGET_XMLDOC_MODE=skip \
+    NUGET_CERT_REVOCATION_MODE=offline
+
 WORKDIR /src
 COPY TsAi.csproj .
-RUN dotnet restore --disable-parallel --source "$NUGET_SOURCE"
+RUN for attempt in 1 2 3; do \
+        dotnet restore --disable-parallel --verbosity minimal --source "$NUGET_SOURCE" && exit 0; \
+        echo "dotnet restore failed on attempt $attempt"; \
+    done; \
+    exit 1
 
 COPY . .
 RUN dotnet publish -c Release -o /app/publish --no-restore
