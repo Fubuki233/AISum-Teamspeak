@@ -1,41 +1,49 @@
 # TsAi Blazor Server App
 ARG NUGET_SOURCE=https://api.nuget.org/v3/index.json
 ARG PIP_INDEX_URL=https://pypi.org/simple
-ARG DEBIAN_MIRROR=deb.debian.org
+ARG DEBIAN_MIRROR=deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=deb.debian.org/debian-security
+ARG APT_FORCE_IPV4=true
 
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG NUGET_SOURCE
 
 WORKDIR /src
 COPY TsAi.csproj .
-RUN dotnet restore --source "$NUGET_SOURCE"
+RUN dotnet restore --disable-parallel --source "$NUGET_SOURCE"
 
 COPY . .
 RUN dotnet publish -c Release -o /app/publish --no-restore
 
 # ---- Runtime stage ----
 FROM mcr.microsoft.com/dotnet/aspnet:9.0
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG PIP_INDEX_URL
 ARG DEBIAN_MIRROR
 ARG DEBIAN_SECURITY_MIRROR
+ARG APT_FORCE_IPV4
 
 # Runtime dependencies for summary + DashScope STT helper
-RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+RUN apt_opts=() \
+    && if [[ "$APT_FORCE_IPV4" == "true" ]]; then apt_opts+=("-o" "Acquire::ForceIPv4=true"); fi \
+    && if [[ -f /etc/apt/sources.list.d/debian.sources ]]; then \
         sed -i "s|http://deb.debian.org/debian|http://$DEBIAN_MIRROR|g; s|http://security.debian.org/debian-security|http://$DEBIAN_SECURITY_MIRROR|g" /etc/apt/sources.list.d/debian.sources; \
-    elif [ -f /etc/apt/sources.list ]; then \
+    elif [[ -f /etc/apt/sources.list ]]; then \
         sed -i "s|http://deb.debian.org/debian|http://$DEBIAN_MIRROR|g; s|http://security.debian.org/debian-security|http://$DEBIAN_SECURITY_MIRROR|g" /etc/apt/sources.list; \
     fi \
-    && apt-get update \
+    && apt-get "${apt_opts[@]}" update \
     && asound_pkg="libasound2" \
+    && ssl_pkg="libssl3" \
     && if ! apt-cache show "$asound_pkg" >/dev/null 2>&1; then asound_pkg="libasound2t64"; fi \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    tzdata "$asound_pkg" libssl3 ca-certificates python3 python3-pip \
+    && if ! apt-cache show "$ssl_pkg" >/dev/null 2>&1; then ssl_pkg="libssl3t64"; fi \
+    && DEBIAN_FRONTEND=noninteractive apt-get "${apt_opts[@]}" install -y --no-install-recommends \
+        tzdata "$asound_pkg" "$ssl_pkg" ca-certificates python3 python3-pip \
     && ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && echo Asia/Shanghai > /etc/timezone \
-    && python3 -m pip install --no-cache-dir --break-system-packages -i "$PIP_INDEX_URL" dashscope \
+    && python3 -m pip install --no-cache-dir --break-system-packages --retries 5 --timeout 120 -i "$PIP_INDEX_URL" dashscope \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
